@@ -8,7 +8,7 @@ from app.database import get_db
 from app.models.user import User, UserRank
 from app.models.book import Book
 from app.models.chapter import Chapter
-from app.services.auth_service import decode_access_token
+from app.services.auth_dependencies import get_current_user
 
 router = APIRouter(prefix="/chapters", tags=["chapters"])
 
@@ -20,6 +20,12 @@ class ChapterCreate(BaseModel):
     background_image: Optional[str] = None
     order_number: int
 
+class ChapterUpdate(BaseModel):
+    title: Optional[str] = None
+    content: Optional[str] = None
+    background_image: Optional[str] = None
+    order_number: Optional[int] = None
+
 class ChapterResponse(BaseModel):
     id: int
     book_id: int
@@ -27,38 +33,26 @@ class ChapterResponse(BaseModel):
     content: str
     background_image: Optional[str]
     order_number: int
+    word_count: int
+    read_time: int
+    published_at: Optional[datetime]
     created_at: datetime
     
     class Config:
         from_attributes = True
 
-# Функция для получения текущего пользователя
-def get_current_user(authorization: str = Header(None), db: Session = Depends(get_db)):
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Требуется авторизация"
-        )
-    
-    token = authorization.replace("Bearer ", "")
-    payload = decode_access_token(token)
-    
-    if not payload:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Недействительный токен"
-        )
-    
-    user_id = payload.get("user_id")
-    user = db.query(User).filter(User.id == user_id).first()
-    
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Пользователь не найден"
-        )
-    
-    return user
+def count_words(text: str) -> int:
+    """Подсчёт количества слов"""
+    if not text:
+        return 0
+    return len(text.split())
+
+def calculate_read_time(word_count: int) -> int:
+    """Расчёт времени прочтения (200 слов в минуту)"""
+    if word_count == 0:
+        return 0
+    minutes = word_count / 200
+    return max(1, round(minutes))
 
 @router.post("/", response_model=ChapterResponse)
 async def create_chapter(
@@ -94,12 +88,18 @@ async def create_chapter(
             detail="Глава с таким номером уже существует"
         )
     
+    word_count = count_words(chapter_data.content)
+    read_time = calculate_read_time(word_count)
+    
     chapter = Chapter(
         book_id=chapter_data.book_id,
         title=chapter_data.title,
         content=chapter_data.content,
         background_image=chapter_data.background_image,
-        order_number=chapter_data.order_number
+        order_number=chapter_data.order_number,
+        word_count=word_count,
+        read_time=read_time,
+        published_at=datetime.utcnow()
     )
     
     db.add(chapter)
@@ -135,7 +135,7 @@ async def get_chapter(chapter_id: int, db: Session = Depends(get_db)):
 @router.put("/{chapter_id}", response_model=ChapterResponse)
 async def update_chapter(
     chapter_id: int,
-    chapter_data: ChapterCreate,
+    chapter_data: ChapterUpdate,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -154,10 +154,16 @@ async def update_chapter(
             detail="Только автор может редактировать главы"
         )
     
-    chapter.title = chapter_data.title
-    chapter.content = chapter_data.content
-    chapter.background_image = chapter_data.background_image
-    chapter.order_number = chapter_data.order_number
+    if chapter_data.title is not None:
+        chapter.title = chapter_data.title
+    if chapter_data.content is not None:
+        chapter.content = chapter_data.content
+        chapter.word_count = count_words(chapter_data.content)
+        chapter.read_time = calculate_read_time(chapter.word_count)
+    if chapter_data.background_image is not None:
+        chapter.background_image = chapter_data.background_image
+    if chapter_data.order_number is not None:
+        chapter.order_number = chapter_data.order_number
     
     db.commit()
     db.refresh(chapter)
@@ -188,4 +194,4 @@ async def delete_chapter(
     db.delete(chapter)
     db.commit()
     
-    return {"message": "Глава удалена"}  
+    return {"message": "Глава удалена"}

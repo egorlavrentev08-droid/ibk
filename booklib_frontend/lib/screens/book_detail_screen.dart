@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:file_picker/file_picker.dart';
 import '../services/api_service.dart';
 import 'reviews_screen.dart';
+import 'chapter_editor_screen.dart';
 
 class BookDetailScreen extends StatefulWidget {
   final Map<String, dynamic> book;
@@ -61,7 +64,20 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
                         children: [
                           Row(
                             children: [
-                              Icon(Icons.book, size: 60, color: Colors.deepPurple),
+                              widget.book['cover_image'] != null
+                                  ? ClipRRect(
+                                      borderRadius: BorderRadius.circular(8),
+                                      child: Image.network(
+                                        '${ApiService.baseUrl}${widget.book['cover_image']}',
+                                        width: 80,
+                                        height: 120,
+                                        fit: BoxFit.cover,
+                                        errorBuilder: (context, error, stackTrace) {
+                                          return Icon(Icons.book, size: 60, color: Colors.deepPurple);
+                                        },
+                                      ),
+                                    )
+                                  : Icon(Icons.book, size: 60, color: Colors.deepPurple),
                               SizedBox(width: 16),
                               Expanded(
                                 child: Column(
@@ -133,13 +149,19 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
                                       child: Text('${chapter['order_number']}'),
                                     ),
                                     title: Text(chapter['title']),
+                                    subtitle: Text(
+                                      '${chapter['word_count']} слов • ${chapter['read_time']} мин • ${chapter['published_at'] != null ? chapter['published_at'].toString().substring(0, 10) : ''}',
+                                      style: TextStyle(fontSize: 12),
+                                    ),
                                     trailing: Icon(Icons.chevron_right),
                                     onTap: () {
                                       Navigator.push(
                                         context,
                                         MaterialPageRoute(
                                           builder: (context) => ChapterReadScreen(
-                                            chapter: chapter,
+                                            chapters: _chapters,
+                                            currentIndex: index,
+                                            bookId: widget.book['id'],
                                           ),
                                         ),
                                       );
@@ -172,9 +194,11 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
   }
   
   void _showCreateChapterDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => CreateChapterDialog(bookId: widget.book['id']),
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ChapterEditorScreen(bookId: widget.book['id']),
+      ),
     ).then((result) {
       if (result == true) {
         _loadData();
@@ -183,35 +207,170 @@ class _BookDetailScreenState extends State<BookDetailScreen> {
   }
 }
 
-class ChapterReadScreen extends StatelessWidget {
-  final Map<String, dynamic> chapter;
+class ChapterReadScreen extends StatefulWidget {
+  final List<dynamic> chapters;
+  final int currentIndex;
+  final int bookId;
   
-  ChapterReadScreen({required this.chapter});
+  ChapterReadScreen({
+    required this.chapters,
+    required this.currentIndex,
+    required this.bookId,
+  });
+  
+  @override
+  _ChapterReadScreenState createState() => _ChapterReadScreenState();
+}
+
+class _ChapterReadScreenState extends State<ChapterReadScreen> {
+  late int _currentIndex;
+  late ScrollController _scrollController;
+  
+  @override
+  void initState() {
+    super.initState();
+    _currentIndex = widget.currentIndex;
+    _scrollController = ScrollController();
+    _loadReadingPosition();
+  }
+  
+  @override
+  void dispose() {
+    _saveReadingPosition();
+    _scrollController.dispose();
+    super.dispose();
+  }
+  
+  Future<void> _saveReadingPosition() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('reading_position_${widget.bookId}', _currentIndex.toString());
+    await prefs.setDouble('scroll_position_${widget.bookId}', _scrollController.offset);
+  }
+  
+  Future<void> _loadReadingPosition() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedIndex = prefs.getString('reading_position_${widget.bookId}');
+    final savedScroll = prefs.getDouble('scroll_position_${widget.bookId}');
+    
+    if (savedIndex != null && savedScroll != null) {
+      final index = int.tryParse(savedIndex);
+      if (index != null && index >= 0 && index < widget.chapters.length) {
+        _currentIndex = index;
+      }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_scrollController.hasClients) {
+          _scrollController.jumpTo(savedScroll);
+        }
+      });
+    }
+  }
+  
+  void _goToChapter(int index) {
+    if (index < 0 || index >= widget.chapters.length) return;
+    setState(() {
+      _currentIndex = index;
+    });
+    if (_scrollController.hasClients) {
+      _scrollController.jumpTo(0);
+    }
+    _saveReadingPosition();
+  }
   
   @override
   Widget build(BuildContext context) {
+    final chapter = widget.chapters[_currentIndex];
+    
     return Scaffold(
       appBar: AppBar(
         title: Text(chapter['title'] ?? 'Глава'),
       ),
-      body: SingleChildScrollView(
-        padding: EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              chapter['title'] ?? '',
-              style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
+      body: GestureDetector(
+        onHorizontalDragEnd: (details) {
+          if (details.primaryVelocity != null) {
+            if (details.primaryVelocity! > 0) {
+              // Свайп вправо — предыдущая глава
+              _goToChapter(_currentIndex - 1);
+            } else if (details.primaryVelocity! < 0) {
+              // Свайп влево — следующая глава
+              _goToChapter(_currentIndex + 1);
+            }
+          }
+        },
+        child: Container(
+          decoration: chapter['background_image'] != null
+              ? BoxDecoration(
+                  image: DecorationImage(
+                    image: NetworkImage('${ApiService.baseUrl}${chapter['background_image']}'),
+                    fit: BoxFit.cover,
+                  ),
+                )
+              : null,
+          child: Container(
+            color: chapter['background_image'] != null
+                ? Colors.black.withOpacity(0.6)
+                : Colors.transparent,
+            child: SingleChildScrollView(
+              controller: _scrollController,
+              padding: EdgeInsets.all(24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    chapter['title'] ?? '',
+                    style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                      color: chapter['background_image'] != null ? Colors.white : null,
+                    ),
+                  ),
+                  SizedBox(height: 8),
+                  Text(
+                    'Глава ${chapter['order_number']} • ${chapter['word_count']} слов • ${chapter['read_time']} мин',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: chapter['background_image'] != null ? Colors.white70 : Colors.grey,
+                    ),
+                  ),
+                  SizedBox(height: 24),
+                  Text(
+                    chapter['content'] ?? '',
+                    style: TextStyle(
+                      fontSize: 18,
+                      height: 1.5,
+                      color: chapter['background_image'] != null ? Colors.white : null,
+                    ),
+                  ),
+                  SizedBox(height: 24),
+                  // Навигация по главам
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      if (_currentIndex > 0)
+                        TextButton.icon(
+                          icon: Icon(Icons.arrow_back),
+                          label: Text('Назад'),
+                          onPressed: () => _goToChapter(_currentIndex - 1),
+                        )
+                      else
+                        SizedBox(width: 100),
+                      Text(
+                        '${_currentIndex + 1} / ${widget.chapters.length}',
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                      if (_currentIndex < widget.chapters.length - 1)
+                        TextButton.icon(
+                          icon: Icon(Icons.arrow_forward),
+                          label: Text('Вперёд'),
+                          onPressed: () => _goToChapter(_currentIndex + 1),
+                        )
+                      else
+                        SizedBox(width: 100),
+                    ],
+                  ),
+                ],
               ),
             ),
-            SizedBox(height: 24),
-            Text(
-              chapter['content'] ?? '',
-              style: TextStyle(fontSize: 18, height: 1.5),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -305,109 +464,6 @@ class _RatingDialogState extends State<RatingDialog> {
         ElevatedButton(
           onPressed: _loading ? null : _submit,
           child: Text('Отправить'),
-        ),
-      ],
-    );
-  }
-}
-
-class CreateChapterDialog extends StatefulWidget {
-  final int bookId;
-  
-  CreateChapterDialog({required this.bookId});
-  
-  @override
-  _CreateChapterDialogState createState() => _CreateChapterDialogState();
-}
-
-class _CreateChapterDialogState extends State<CreateChapterDialog> {
-  final _titleController = TextEditingController();
-  final _contentController = TextEditingController();
-  final _orderController = TextEditingController(text: '1');
-  bool _loading = false;
-  String? _error;
-  
-  @override
-  void dispose() {
-    _titleController.dispose();
-    _contentController.dispose();
-    _orderController.dispose();
-    super.dispose();
-  }
-  
-  Future<void> _submit() async {
-    if (_titleController.text.isEmpty || _contentController.text.isEmpty) {
-      setState(() => _error = 'Заполните все поля');
-      return;
-    }
-    
-    setState(() => _loading = true);
-    try {
-      await ApiService.createChapter(
-        widget.bookId,
-        _titleController.text,
-        _contentController.text,
-        orderNumber: int.tryParse(_orderController.text) ?? 1,
-      );
-      if (mounted) {
-        Navigator.pop(context, true);
-      }
-    } catch (e) {
-      setState(() {
-        _error = e.toString().replaceAll('Exception: ', '');
-        _loading = false;
-      });
-    }
-  }
-  
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text('Новая глава'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: _titleController,
-              decoration: InputDecoration(
-                labelText: 'Название главы',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            SizedBox(height: 16),
-            TextField(
-              controller: _contentController,
-              maxLines: 10,
-              decoration: InputDecoration(
-                labelText: 'Содержание',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            SizedBox(height: 16),
-            TextField(
-              controller: _orderController,
-              keyboardType: TextInputType.number,
-              decoration: InputDecoration(
-                labelText: 'Номер главы',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            if (_error != null) ...[
-              SizedBox(height: 16),
-              Text(_error!, style: TextStyle(color: Colors.red)),
-            ],
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: Text('Отмена'),
-        ),
-        ElevatedButton(
-          onPressed: _loading ? null : _submit,
-          child: Text('Создать'),
         ),
       ],
     );

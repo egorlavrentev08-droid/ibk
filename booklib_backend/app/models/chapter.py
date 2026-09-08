@@ -12,10 +12,13 @@ class Chapter(Base):
     content = Column(Text, nullable=False)
     background_image = Column(String, nullable=True)  # Путь к обоям
     order_number = Column(Integer, nullable=False)  # Порядковый номер главы
+    word_count = Column(Integer, default=0)  # Количество слов
+    read_time = Column(Integer, default=0)  # Время прочтения в минутах
+    published_at = Column(DateTime, nullable=True)  # Дата публикации
     created_at = Column(DateTime, server_default=func.now())
     
     # Связь с книгой
     book = relationship("Book", back_populates="chapters")
     
     def __repr__(self):
-        return f"<Chapter {self.title} (book {self.book_id})>"  
+        return f"<Chapter {self.title} (book {self.book_id})>"

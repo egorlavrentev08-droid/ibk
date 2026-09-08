@@ -88,6 +88,7 @@ class ApiService {
     String title,
     String description, {
     bool isRestricted = false,
+    String? coverImage,
   }) async {
     final token = await getToken();
     final response = await http.post(
@@ -100,13 +101,15 @@ class ApiService {
         'title': title,
         'description': description,
         'is_restricted': isRestricted,
+        'cover_image': coverImage,
       }),
     );
     
     if (response.statusCode == 200) {
       return jsonDecode(response.body);
     } else {
-      throw Exception('Ошибка создания книги');
+      final error = jsonDecode(response.body);
+      throw Exception(error['detail'] ?? 'Ошибка создания книги');
     }
   }
   
@@ -127,6 +130,7 @@ class ApiService {
     String title,
     String content, {
     int orderNumber = 1,
+    String? backgroundImage,
   }) async {
     final token = await getToken();
     final response = await http.post(
@@ -140,13 +144,15 @@ class ApiService {
         'title': title,
         'content': content,
         'order_number': orderNumber,
+        'background_image': backgroundImage,
       }),
     );
     
     if (response.statusCode == 200) {
       return jsonDecode(response.body);
     } else {
-      throw Exception('Ошибка создания главы');
+      final error = jsonDecode(response.body);
+      throw Exception(error['detail'] ?? 'Ошибка создания главы');
     }
   }
   
@@ -174,7 +180,8 @@ class ApiService {
     if (response.statusCode == 200) {
       return jsonDecode(response.body);
     } else {
-      throw Exception('Ошибка создания оценки');
+      final error = jsonDecode(response.body);
+      throw Exception(error['detail'] ?? 'Ошибка создания оценки');
     }
   }
   
@@ -243,7 +250,53 @@ class ApiService {
     if (response.statusCode == 200) {
       return jsonDecode(response.body);
     } else {
-      throw Exception('Ошибка голосования');
+      final error = jsonDecode(response.body);
+      throw Exception(error['detail'] ?? 'Ошибка голосования');
+    }
+  }
+  
+  static Future<Map<String, dynamic>> uploadImage(
+    String filePath, {
+    List<int>? bytes,
+    String? fileName,
+  }) async {
+    final token = await getToken();
+    final request = http.MultipartRequest(
+      'POST',
+      Uri.parse('$baseUrl/uploads/image'),
+    );
+    request.headers['Authorization'] = 'Bearer $token';
+    
+    if (bytes != null) {
+      // Для Web — используем байты
+      // Определяем имя файла или используем по умолчанию
+      String finalFileName = fileName ?? 'image.png';
+      if (!finalFileName.contains('.')) {
+        finalFileName = '$finalFileName.png';
+      }
+      
+      request.files.add(
+        http.MultipartFile.fromBytes(
+          'file',
+          bytes,
+          filename: finalFileName,
+        ),
+      );
+    } else {
+      // Для других платформ — используем путь
+      request.files.add(
+        await http.MultipartFile.fromPath('file', filePath),
+      );
+    }
+    
+    final streamedResponse = await request.send();
+    final response = await http.Response.fromStream(streamedResponse);
+    
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      final error = jsonDecode(response.body);
+      throw Exception(error['detail'] ?? 'Ошибка загрузки изображения');
     }
   }
 }

@@ -7,7 +7,7 @@ from datetime import datetime
 from app.database import get_db
 from app.models.user import User, UserRank
 from app.models.book import Book
-from app.services.auth_service import decode_access_token
+from app.services.auth_dependencies import get_current_user
 
 router = APIRouter(prefix="/books", tags=["books"])
 
@@ -17,6 +17,12 @@ class BookCreate(BaseModel):
     description: str = ""
     cover_image: Optional[str] = None
     is_restricted: bool = False
+
+class BookUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    cover_image: Optional[str] = None
+    is_restricted: Optional[bool] = None
 
 class BookResponse(BaseModel):
     id: int
@@ -29,34 +35,6 @@ class BookResponse(BaseModel):
     
     class Config:
         from_attributes = True
-
-# Функция для получения текущего пользователя
-def get_current_user(authorization: str = Header(None), db: Session = Depends(get_db)):
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Требуется авторизация"
-        )
-    
-    token = authorization.replace("Bearer ", "")
-    payload = decode_access_token(token)
-    
-    if not payload:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Недействительный токен"
-        )
-    
-    user_id = payload.get("user_id")
-    user = db.query(User).filter(User.id == user_id).first()
-    
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Пользователь не найден"
-        )
-    
-    return user
 
 @router.post("/", response_model=BookResponse)
 async def create_book(
@@ -105,7 +83,7 @@ async def get_book(book_id: int, db: Session = Depends(get_db)):
 @router.put("/{book_id}", response_model=BookResponse)
 async def update_book(
     book_id: int,
-    book_data: BookCreate,
+    book_data: BookUpdate,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -123,10 +101,14 @@ async def update_book(
             detail="Только автор может редактировать книгу"
         )
     
-    book.title = book_data.title
-    book.description = book_data.description
-    book.cover_image = book_data.cover_image
-    book.is_restricted = book_data.is_restricted
+    if book_data.title is not None:
+        book.title = book_data.title
+    if book_data.description is not None:
+        book.description = book_data.description
+    if book_data.cover_image is not None:
+        book.cover_image = book_data.cover_image
+    if book_data.is_restricted is not None:
+        book.is_restricted = book_data.is_restricted
     
     db.commit()
     db.refresh(book)
@@ -156,4 +138,4 @@ async def delete_book(
     db.delete(book)
     db.commit()
     
-    return {"message": "Книга удалена"}  
+    return {"message": "Книга удалена"}

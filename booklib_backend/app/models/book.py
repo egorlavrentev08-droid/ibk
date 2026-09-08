@@ -20,4 +20,4 @@ class Book(Base):
     ratings = relationship("Rating", back_populates="book", cascade="all, delete-orphan")
     
     def __repr__(self):
-        return f"<Book {self.title} by user {self.author_id}>"  
+        return f"<Book {self.title} by user {self.author_id}>"

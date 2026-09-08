@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/auth_provider.dart';
 import '../services/api_service.dart';
-import 'create_book_screen.dart';
-import 'book_detail_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   @override
@@ -65,20 +63,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         return Card(
                           margin: EdgeInsets.only(bottom: 16),
                           child: ListTile(
-                            leading: book['cover_image'] != null
-                                ? ClipRRect(
-                                    borderRadius: BorderRadius.circular(4),
-                                    child: Image.network(
-                                      '${ApiService.baseUrl}${book['cover_image']}',
-                                      width: 40,
-                                      height: 60,
-                                      fit: BoxFit.cover,
-                                      errorBuilder: (context, error, stackTrace) {
-                                        return Icon(Icons.book, size: 40);
-                                      },
-                                    ),
-                                  )
-                                : Icon(Icons.book, size: 40),
+                            leading: Icon(Icons.book, size: 40),
                             title: Text(
                               book['title'],
                               style: TextStyle(fontWeight: FontWeight.bold),
@@ -86,26 +71,15 @@ class _HomeScreenState extends State<HomeScreen> {
                             subtitle: Text(book['description'] ?? ''),
                             trailing: Icon(Icons.chevron_right),
                             onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => BookDetailScreen(book: book),
-                                ),
-                              );
+                              // TODO: Открыть экран книги
                             },
                           ),
                         );
                       },
                     ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () async {
-          final result = await Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => CreateBookScreen()),
-          );
-          if (result == true) {
-            _loadBooks();
-          }
+        onPressed: () {
+          // TODO: Создать книгу
         },
         child: Icon(Icons.add),
       ),
